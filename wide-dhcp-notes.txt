@@ -1,0 +1,103 @@
+http://wide-dhcpv6.sourceforge.net/ supports DHCPv6 authentication.
+
+
+Ubuntu 18.04 LTS 64-bit.
+
+sudo aptitude install wide-dhcpv6-server wide-dhcpv6-client
+
+$ cat /etc/wide-dhcpv6/dhcp6c.conf
+# Default dhpc6c configuration: it assumes the address is autoconfigured using
+# router advertisements.
+
+keyinfo kame-key {
+	realm "kame.net";
+	keyid 1;
+	secret "b3BlbndhbGw=";  # openwall
+};
+
+interface enp0s8 {
+	request domain-name-servers;
+	request domain-name;
+	send rapid-commit;
+	send ia-na 15;
+	send authentication kame;
+	script "/etc/wide-dhcpv6/dhcp6c-script";
+};
+
+authentication kame {
+	protocol delayed;
+};
+
+id-assoc na 15 {
+};
+
+$ cat /etc/wide-dhcpv6/dhcp6s.conf
+# If a shared secret was to be configured in both the server and the client
+# for DHCPv6 authentication, it would be specified in this file as follows:
+
+keyinfo kame {
+     realm "kame.net";
+     keyid 1;
+     secret "b3BlbndhbGw=";
+};
+
+host kame {
+        duid 00:01:00:01:5b:24:ba:78:0e;  # change this according to output of wide_mkduid_cern.pl script
+        address 2001:888:0db8:1::b infinity;
+        delayedkey kame;
+};
+
+# The following is an example configuration which provides an IPv6 address
+# from an address pool (2001:db8:1:2::1000-2000) with a lease time of 3600
+# seconds to any client attached to the enp0s8 interface.
+
+interface enp0s8 {
+	address-pool pool1 3600;
+};
+
+pool pool1 {
+	range 2001:db8:1:2::1000 to 2001:db8:1:2::2000 ;
+};
+
+
+$ sudo /usr/sbin/dhcp6s -c /etc/wide-dhcpv6/dhcp6s.conf -D -f enp0s8  # run server in foreground in debugging mode
+
+cd /var/lib/dhcpv6
+rm client6.leases*
+wget http://ipv6.web.cern.ch/sites/ipv6.web.cern.ch/files/mkduid.pl.txt
+mv mkduid.pl.txt wide_mkduid_cern.pl
+chmod 700 wide_mkduid_cern.pl
+./wide_mkduid_cern.pl -t now -m 00:15:5D:FF:4B:37
+
+Note: Use the output DUID value in /etc/wide-dhcpv6/dhcp6s.conf file.
+
+Note: Use Wireshark to see the DHCPv6 authentication packets.
+
+sudo systemctl restart wide-dhcpv6-client.service
+
+dhcpcd notes ->
+
+# cat /etc/dhcpcd.conf
+# Inform the DHCP server of our hostname for DDNS.
+hostname
+
+# Use the hardware address of the interface for the Client ID.
+#clientid
+# or
+# Use the same DUID + IAID as set in DHCPv6 for DHCPv4 ClientID as per RFC4361.
+# Some non-RFC compliant DHCP servers do not reply with this set.
+# In this case, comment out duid and enable clientid above.
+duid
+
+# Uncomment this line if you are running dhcpcd for IPv6 only.
+ipv6only
+
+# use the interface connected to WAN
+interface enp0s8
+    noipv6rs
+    iaid 15
+    ia_na
+    waitip 6
+
+authprotocol delayedrealm
+authtoken 1 "kame.net" 0 "openwall"
